@@ -48,6 +48,15 @@ tf.logging.set_verbosity(tf.logging.INFO)
 ####################################################################################################################################
 #Helper Functions
 ####################################################################################################################################
+def outputResults(image,mask,fout='segmentation.png'):
+    #create the segmented image
+    canvas = image.copy()
+    canvas[mask == -1] = [0,0,0]
+    canvas[mask == 0] = [0,0,0]
+    canvas[mask == 1] = [255,255,255]
+
+    #show the original image and the segmented image and then save the results
+    cv2.imwrite(fout,canvas)
 
 ####################################################################################################################################
 #######################################################################################
@@ -129,45 +138,6 @@ def main(unused_argv):
 ####################################################################################################################################
 #helper functions
 
-        def outputResults(image,mask,fout='segmentation.png'):
-            #create the segmented image
-            canvas = image.copy()
-            canvas[mask == -1] = [0,0,0]
-            canvas[mask == 0] = [0,0,0]
-            canvas[mask == 1] = [255,255,255]
-
-            #show the original image and the segmented image and then save the results
-            cv2.imwrite(fout,canvas)
-
-            #count the percentage of each category
-            cat1_count = np.count_nonzero(mask == 0)
-            cat2_count = np.count_nonzero(mask == 1)
-            total = cat1_count + cat2_count
-
-            #get the percentage of each category
-            p1 = cat1_count / total
-            p2 = cat2_count / total
-
-            #output to text file
-            with open('results.txt','a') as f:
-                f.write("\nusing model: %s\n" % sys.argv[3])
-                f.write("evaluate image: %s\n\n" % sys.argv[2])
-                f.write("--------------------------------------------------------------------------------------\n")
-                f.write("%s : %f\n" % (constants.CAT1,p1))
-                f.write("%s : %f\n" % (constants.CAT2,p2))
-                f.write("--------------------------------------------------------------------------------------\n")
-                f.write("------------------------------------END-----------------------------------------------\n")
-                f.write("--------------------------------------------------------------------------------------\n")
-
-                greatest = max(cat1_count,cat2_count,cat3_count,cat4_count)
-
-                #f.write out to the terminal what the most common category was for the image
-                if(greatest == cat1_count):
-                    f.write("\nthe most common category is: " + constants.CAT1)
-                elif(greatest == cat2_count):
-                    f.write("\nthe most common category is: " + constants.CAT2)
-                else:
-                    f.write("\nsorry something went wrong counting the predictions")
 
         #training mode trained on the image
         if(sys.argv[1] == 'train'):
@@ -191,7 +161,6 @@ def main(unused_argv):
 
                     #get an image batch
                     batch_x,batch_y = featureReader.getPixelBatch(constants.BATCH_SIZE)
-
                     optimizer.run(feed_dict={x: batch_x, y: batch_y})
 
                     #evaluate the model using a test set
@@ -217,8 +186,7 @@ def main(unused_argv):
 
             #read the image
             if os.path.isfile(sys.argv[2]):
-                tmp = cv2.imread(sys.argv[2],cv2.IMREAD_COLOR)
-                image = cv2.resize(tmp,(constants.FULL_IMGSIZE,constants.FULL_IMGSIZE),interpolation=cv2.INTER_CUBIC)
+                image = cv2.imread(sys.argv[2],cv2.IMREAD_COLOR)
 
             #restore the graph and make the predictions and show the segmented image
             with tf.Session() as sess:
@@ -234,7 +202,7 @@ def main(unused_argv):
                 count = 0
                 count2 = 0
                 best_guess = np.full((h,w),-1)
-                raw_guess = np.full((h,w,6),0)
+                raw_guess = np.full((h,w,len(constants.CAT1_ONEHOT)),0)
                 tmp = []
                 i0 = int(constants.IMG_SIZE / 2)
                 j0 = int(constants.IMG_SIZE / 2)
@@ -277,13 +245,13 @@ def main(unused_argv):
 
                             #give console output to show progress
                             outputResults(image,np.array(best_guess),fout=seg_file)
+                            np.save(logname,raw_guess)
                             print('%i out of %i complete' % (count2,math.ceil(int((h - constants.IMG_SIZE) * (w - constants.IMG_SIZE) / constants.BATCH_SIZE))))
                             #empty tmporary array
                             tmp = []
                             count2 += 1
                         count += 1
 
-                np.save(logname,raw_guess)
         else:
             print("train ")
             print("trainseg ")

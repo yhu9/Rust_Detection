@@ -33,17 +33,18 @@ def getPixelBatch(n):
 
     #check if the file directories exists
     if os.path.exists(cat_dir) and os.path.exists(label_dir):
-        print('found category and label images')
-        rand_findex = random.randint(0,len(os.path.listdir(cat_dir) - 1))
+        rand_findex = random.randint(0,len(os.listdir(cat_dir)) - 1)
 
         #get a random image and label and read the images in
-        catfile = os.path.join(cat_dir,os.path.listdir(cat_dir)[rand_findex])
-        labelfile = os.path.join(label_dir,os.path.listdir(label_dir)[rand_findex])
+        catfile = os.path.join(cat_dir,os.listdir(cat_dir)[rand_findex])
+        labelfile = os.path.join(label_dir,os.path.splitext(os.path.basename(catfile))[0] + 'gt' + os.path.splitext(os.path.basename(catfile))[1])
         img = cv2.imread(catfile,cv2.IMREAD_COLOR)
-        mask = cv2.imread(labelfile,cv2.IMREAD_COLOR)
+        gray_img = cv2.imread(labelfile,cv2.IMREAD_GRAYSCALE)
+        thresh, mask = cv2.threshold(gray_img, 128, 255, cv2.THRESH_BINARY)
 
         #create the training / testing set by picking a batch size of random points from the random image
         h,w,d = img.shape
+        h2,w2 = mask.shape
         low = int(constants.IMG_SIZE / 2)
         high_w = int(w - (constants.IMG_SIZE / 2) - 1)
         high_h = int(h - (constants.IMG_SIZE / 2) - 1)
@@ -57,12 +58,14 @@ def getPixelBatch(n):
 
             box = img[box_low1:box_high1,box_low2:box_high2]
             inputs.append(box)
-            if np.all(mask[y,x] == [0,0,0]):
+            if np.all(mask[y,x] == 0):
                 labels.append(constants.CAT1_ONEHOT)
-            elif np.all(mask[y,x] == [255,255,255]):
+            elif np.all(mask[y,x] == 255):
                 labels.append(constants.CAT2_ONEHOT)
             else:
                 print('error with the labels image. IT IS NOT WHITE AND BLACK!')
+                print(mask[y,x])
+                quit()
     else:
         print("%s directory does not exist" % cat_dir)
         quit()
