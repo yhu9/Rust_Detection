@@ -57,7 +57,8 @@ def getPixelBatch(n):
 
         #cut off the edges so we don't choose pixels on the boundry
         for i in range(n):
-            if i % 2 == 0:
+            j = random.randint(0,9)
+            if j % 2 == 0:
                 pt_id = random.randint(0,len(x1s) - 1)
                 x = x1s[pt_id]
                 y = y1s[pt_id]

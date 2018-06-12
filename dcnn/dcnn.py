@@ -84,7 +84,7 @@ def main(unused_argv):
         biases = {}
 
         #local convolution pathway
-        weights['W_local1'] = tf.Variable(tf.random_normal([7,7,3,constants.CNN_LOCAL1]))
+        weights['W_local1'] = tf.Variable(tf.random_normal([5,5,3,constants.CNN_LOCAL1]))
         biases['b_local1'] = tf.Variable(tf.random_normal([constants.CNN_LOCAL1]))
         conv1 = tf.nn.conv2d(x,weights['W_local1'],strides=[1,1,1,1],padding='SAME',name='local1')
         local1 = tf.nn.relu(conv1 + biases['b_local1'])
@@ -245,7 +245,7 @@ def main(unused_argv):
 
                             #give console output to show progress
                             outputResults(image,np.array(best_guess),fout=seg_file)
-                            np.save(logname,raw_guess)
+                            np.save(os.path.splitext(logname)[0],raw_guess)
                             print('%i out of %i complete' % (count2,math.ceil(int((h - constants.IMG_SIZE) * (w - constants.IMG_SIZE) / constants.BATCH_SIZE))))
                             #empty tmporary array
                             tmp = []
