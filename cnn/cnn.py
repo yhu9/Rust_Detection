@@ -48,6 +48,15 @@ tf.logging.set_verbosity(tf.logging.INFO)
 ####################################################################################################################################
 #Helper Functions
 ####################################################################################################################################
+def outputResults(image,mask,fout='segmentation.png'):
+    #create the segmented image
+    canvas = image.copy()
+    canvas[mask == -1] = [0,0,0]
+    canvas[mask == 0] = [0,0,0]
+    canvas[mask == 1] = [255,255,255]
+
+    #show the original image and the segmented image and then save the results
+    cv2.imwrite(fout,canvas)
 
 ####################################################################################################################################
 #######################################################################################
@@ -69,66 +78,103 @@ def main(unused_argv):
         #################################################################################################################
         #################################################################################################################
         #Define our Convolutionary Neural Network from scratch
-        x = tf.placeholder('float',[None,constants.IMG_SIZE,constants.IMG_SIZE,constants.IMG_DEPTH])
-        y = tf.placeholder('float',[None,constants.CNN_CLASSES])
+        x1 = tf.placeholder('float',[None,constants.IMG_SIZE,constants.IMG_SIZE,constants.IMG_DEPTH])
+        x2 = tf.placeholder('float',[None,constants.IMG_SIZE,constants.IMG_SIZE,constants.IMG_DEPTH])
+        y = tf.placeholder('float',[None,1])
+        y1 = tf.placeholder('float',[None,1])
+        y2 = tf.placeholder('float',[None,1])
+
         weights = {}
         biases = {}
 
-        #local convolution pathway
-        weights['W_local1'] = tf.Variable(tf.random_normal([5,5,3,constants.CNN_LOCAL1]))
-        biases['b_local1'] = tf.Variable(tf.random_normal([constants.CNN_LOCAL1]))
-        conv1 = tf.nn.conv2d(x,weights['W_local1'],strides=[1,1,1,1],padding='SAME',name='local1')
-        local1 = tf.nn.relu(conv1 + biases['b_local1'])
-
-        weights['W_local2'] = tf.Variable(tf.random_normal([3,3,constants.CNN_LOCAL1,constants.CNN_LOCAL2]))
-        biases['b_local2'] = tf.Variable(tf.random_normal([constants.CNN_LOCAL2]))
-        conv2 = tf.nn.conv2d(local1,weights['W_local2'],strides=[1,1,1,1],padding='SAME',name='local2')
-        activations = tf.nn.relu(conv2 + biases['b_local2'])
-
-        #create our first fully connected layer
         #magic number = width * height * n_convout
-        magic_number = int(constants.IMG_SIZE * constants.IMG_SIZE * constants.CNN_LOCAL2)
+        magic_number = int((constants.CNN_LOCAL1 + constants.CNN_GLOBAL) * (constants.IMG_SIZE * constants.IMG_SIZE))
 
-        #fully conntected layer
-        with tf.name_scope('Fully_Connected_1'):
-            with tf.name_scope('activation'):
-                weights['W_fc'] = tf.Variable(tf.random_normal([magic_number,constants.CNN_FULL1]))
-                biases['b_fc'] = tf.Variable(tf.random_normal([constants.CNN_FULL1]))
-                layer1_input = tf.reshape(activations,[-1,magic_number])
-                fullyConnected = tf.nn.relu(tf.matmul(layer1_input,weights['W_fc']) + biases['b_fc'])
-                #fullyConnected = tf.nn.dropout(fullyConnected,constants.KEEP_RATE)
-            tf.summary.histogram('activations_3',fullyConnected)
+        #rust matter convolution
+        with tf.name_scope('model_rust'):
+            weights['w_rustmatter'] = tf.Variable(tf.random_normal([7,7,3,constants.CNN_LOCAL1]))
+            biases['b_rustmatter'] = tf.Variable(tf.random_normal([constants.CNN_LOCAL1]))
+            rust_conv1 = tf.nn.conv2d(x1,weights['w_rustmatter'],strides=[1,1,1,1],padding='SAME',name='rust_rust1')
+            rust1 = tf.nn.relu(rust_conv1 + biases['b_rustmatter'])
+            weights['w_rustmatter_p1b'] = tf.Variable(tf.random_normal([3,3,constants.CNN_LOCAL1,constants.CNN_LOCAL1]))
+            biases['b_rustmatter_p1b'] = tf.Variable(tf.random_normal([constants.CNN_LOCAL1]))
+            rust_conv2 = tf.nn.conv2d(rust1,weights['w_rustmatter_p1b'],strides=[1,1,1,1],padding='SAME',name='rust_rust2')
+            rust2 = tf.nn.relu(rust_conv2 + biases['b_rustmatter_p1b'])
+            weights['w_rustmatter_global'] = tf.Variable(tf.random_normal([13,13,3,constants.CNN_GLOBAL]))
+            biases['b_rustmatter_global'] = tf.Variable(tf.random_normal([constants.CNN_GLOBAL]))
+            grust_conv1 = tf.nn.conv2d(x1,weights['w_rustmatter_global'],strides=[1,1,1,1],padding='SAME',name='global_rust')
+            rust3 = tf.nn.relu(grust_conv1 + biases['b_rustmatter_global'])
+            rust_activations = tf.concat([rust2,rust3],3)
+            weights['out1'] = tf.Variable(tf.random_normal([magic_number,1]))
+            biases['out1'] = tf.Variable(tf.random_normal([1]))
+            output1 = tf.reshape(rust_activations,[-1,magic_number])
+            predictions1 = tf.matmul(output1,weights['out1'])+biases['out1']
+            output = tf.nn.sigmoid(predictions1)
+            with tf.name_scope('cost'):
+                cost1 = tf.nn.sigmoid_cross_entropy_with_logits(logits=predictions1,labels=y1)
+                tf.summary.histogram('cost1',cost1)
+            with tf.name_scope('optimizer'):
+                optimizer1= tf.train.AdamOptimizer(constants.LEARNING_RATE).minimize(cost1)
+            with tf.name_scope('accuracy'):
+                correct_prediction1 = tf.cast(tf.equal(tf.round(tf.nn.sigmoid(predictions1)),y1),tf.float32)
+                accuracy1 = tf.reduce_mean(correct_prediction1)
+                tf.summary.histogram('accuracy1',accuracy1)
 
-        #Final fully connected layer for classification
-        with tf.name_scope('output'):
-            weights['out'] = tf.Variable(tf.random_normal([constants.CNN_FULL1,constants.CNN_CLASSES]))
-            biases['out'] = tf.Variable(tf.random_normal([constants.CNN_CLASSES]))
-            predictions = tf.matmul(fullyConnected,weights['out'])+biases['out']
+        '''
+        #nonrust matter convolution
+        with tf.name_scope('model_nonrust'):
+            weights['w_nonrustmatter'] = tf.Variable(tf.random_normal([7,7,3,constants.CNN_LOCAL1]))
+            biases['b_nonrustmatter'] = tf.Variable(tf.random_normal([constants.CNN_LOCAL1]))
+            nonrust_conv1 = tf.nn.conv2d(x2,weights['w_nonrustmatter'],strides=[1,1,1,1],padding='SAME',name='nonrust_nonrust1')
+            nonrust1 = tf.nn.relu(nonrust_conv1 + biases['b_nonrustmatter'])
+            weights['w_nonrustmatter_p1b'] = tf.Variable(tf.random_normal([3,3,constants.CNN_LOCAL1,constants.CNN_LOCAL1]))
+            biases['b_nonrustmatter_p1b'] = tf.Variable(tf.random_normal([constants.CNN_LOCAL1]))
+            nonrust_conv2 = tf.nn.conv2d(nonrust1,weights['w_nonrustmatter_p1b'],strides=[1,1,1,1],padding='SAME',name='nonrust_nonrust2')
+            nonrust2 = tf.nn.relu(nonrust_conv2 + biases['b_nonrustmatter_p1b'])
+            weights['w_nonrustmatter_global'] = tf.Variable(tf.random_normal([13,13,3,constants.CNN_GLOBAL]))
+            biases['b_nonrustmatter_global'] = tf.Variable(tf.random_normal([constants.CNN_GLOBAL]))
+            gnonrust_conv1 = tf.nn.conv2d(x2,weights['w_nonrustmatter_global'],strides=[1,1,1,1],padding='SAME',name='global_nonrust')
+            nonrust3 = tf.nn.relu(gnonrust_conv1 + biases['b_nonrustmatter_global'])
+            nonrust_activations = tf.concat([nonrust2,nonrust3],3)
+            weights['out1'] = tf.Variable(tf.random_normal([magic_number,1]))
+            biases['out1'] = tf.Variable(tf.random_normal([1]))
+            output1 = tf.reshape(nonrust_activations,[-1,magic_number])
+            predictions2 = tf.matmul(output1,weights['out1'])+biases['out1']
+            with tf.name_scope('cost'):
+                cost2 = tf.nn.sigmoid_cross_entropy_with_logits(logits=predictions2,labels=y2)
+                tf.summary.histogram('cost2',cost2)
+            with tf.name_scope('optimizer'):
+                optimizer2= tf.train.AdamOptimizer(constants.LEARNING_RATE).minimize(cost2)
+            with tf.name_scope('accuracy'):
+                correct_prediction2 = tf.cast(tf.equal(tf.round(tf.nn.sigmoid(predictions2)),y2),tf.float32)
+                accuracy2 = tf.reduce_mean(correct_prediction2)
+                tf.summary.histogram('accuracy2',accuracy2)
 
-        #define optimization and accuracy creation
-        with tf.name_scope('cost'):
-            cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=predictions,labels=y))
-        with tf.name_scope('optimizer'):
-            optimizer = tf.train.AdamOptimizer(constants.LEARNING_RATE).minimize(cost)
-        with tf.name_scope('accuracy'):
-            correct_prediction = tf.equal(tf.argmax(predictions,1),tf.argmax(y,1))
-            correct_prediction = tf.cast(correct_prediction,tf.float32)
-            accuracy = tf.reduce_mean(correct_prediction)
+        #stack all convoluted outputs from each model
+        with tf.name_scope('model_all'):
+            stacked = tf.concat([rust_activations,nonrust_activations,],3)
+            convcount = constants.CLASSES * (constants.CNN_LOCAL1 + constants.CNN_GLOBAL)
+            all_raws = tf.reshape(stacked,[-1,convcount * constants.IMG_SIZE * constants.IMG_SIZE])
+            weights['w_all'] = tf.Variable(tf.random_normal([convcount * constants.IMG_SIZE * constants.IMG_SIZE,1]))
+            biases['b_all'] = tf.Variable(tf.random_normal([1]))
+            predictions_final = tf.matmul(all_raws,weights['w_all']) + biases['b_all']
+            output = tf.nn.sigmoid(predictions_final)
+            all_cost = tf.nn.sigmoid_cross_entropy_with_logits(logits=predictions_final,labels=y)
 
-        #prediction operation
-        predict_op = tf.argmax(predictions,1)
-        tf.summary.scalar('accuracy',accuracy)
+            var_list1 = [weights['w_all'],biases['b_all']]
+            all_optimizer = tf.train.AdamOptimizer(constants.LEARNING_RATE).minimize(all_cost,var_list=var_list1)
+            all_correct = tf.cast(tf.equal(tf.round(tf.nn.sigmoid(predictions_final)),y),tf.float32)
+            all_accuracy = tf.reduce_mean(all_correct)
+        '''
 
         #################################################################################################################
         #################################################################################################################
         init = tf.global_variables_initializer()
         saver = tf.train.Saver()
-
 ####################################################################################################################################
 ####################################################################################################################################
 ####################################################################################################################################
 #helper functions
-
 
         #training mode trained on the image
         if(sys.argv[1] == 'train'):
@@ -136,8 +182,9 @@ def main(unused_argv):
             #net = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=True))
             #with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_placement=True)) as sess:
             with tf.Session() as sess:
-                sess.run(init)
                 merged = tf.summary.merge_all()
+                training_writer = tf.summary.FileWriter('./log',sess.graph)
+                sess.run(init)
 
                 #train the model
                 acc = 0.00;
@@ -150,25 +197,42 @@ def main(unused_argv):
 
                 for epoch in range(constants.CNN_EPOCHS):
 
-                    #get an image batch
+                    #get an image batch and train each model separately
                     batch_x,batch_y = featureReader.getPixelBatch(constants.BATCH_SIZE)
-                    optimizer.run(feed_dict={x: batch_x, y: batch_y})
+                    optimizer1.run(feed_dict={x1: batch_x, y1: batch_y})
+                    #batch_x,batch_y = featureReader.getPixelBatch(constants.BATCH_SIZE)
+                    #optimizer2.run(feed_dict={x2: batch_x, y2: batch_y})
 
-                    #evaluate the model using a test set
+                    #batch_x,batch_y = featureReader.getPixelBatch(constants.BATCH_SIZE)
+                    #all_optimizer.run({x1: batch_x,x2: batch_x,y: batch_y})
+
+                    #evaluate the models separately using a test set
                     if epoch % 1 == 0:
+
+                        #evaluate test set
                         eval_x,eval_y = featureReader.getPixelBatch(constants.BATCH_SIZE)
-                        accnew = accuracy.eval({x: eval_x, y: eval_y})
+                        acc1 = accuracy1.eval({x1: eval_x, y1: eval_y})
+                        #eval_x,eval_y = featureReader.getPixelBatch(constants.BATCH_SIZE)
+                        #acc2 = accuracy2.eval({x2: eval_x, y2: eval_y})
+
+                        #eval_x,eval_y = featureReader.getPixelBatch(constants.BATCH_SIZE)
+                        #accnew = all_accuracy.eval({x1: eval_x,x2: eval_x, y: eval_y})
+
+                        #record summaries
+                        #summary = sess.run(merged,feed_dict={x1:eval_x, x2:eval_x,y1:eval_y,y2:eval_y,y:eval_y})
+                        #training_writer.add_summary(summary,epoch)
 
                         #save the model if it holds the highest accuracy or is tied for highest accuracy
-                        if(accnew >= acc):
-                            acc = accnew
-                            save_path = saver.save(sess,'./model/cnn_model.ckpt')
+                        if(acc1 >= acc):
+                            acc = acc1
+                            save_path = saver.save(sess,'model/cnn_model.ckpt')
                             print("highest accuracy found! model saved")
 
-                        print('epoch: ' + str(epoch) + '     ' +
-                                'accuracy: ' + str(accnew))
-                        with open(logdir,'a') as log_out:
-                            log_out.write('epoch: ' + str(epoch) + '     ' + 'accuracy: ' + str(accnew) + '\n')
+                        print('epoch: %i  rust: %.4f ' % (epoch,acc1))
+                        #print('epoch: %i  rust: %.4f  nonrust: %.4f  all: %.4f' % (epoch,acc1,acc2,accnew))
+                        #with open(logdir,'a') as log_out:
+                        #    log_out.write('epoch: %i   rust: %.4f  nonrust: %.4f  all: %.4f\n' % (epoch,acc1,acc2,accnew))
+
 
         #testing method needs a saved check point directory (model)
         elif(sys.argv[1] == 'test' and len(sys.argv) == 4):
@@ -193,7 +257,7 @@ def main(unused_argv):
                 count = 0
                 count2 = 0
                 best_guess = np.full((h,w),-1)
-                raw_guess = np.full((h,w,len(constants.CAT1_ONEHOT)),0)
+                raw_guess = np.full((h,w,constants.CLASSES),0)
                 tmp = []
                 i0 = int(constants.IMG_SIZE / 2)
                 j0 = int(constants.IMG_SIZE / 2)
@@ -201,6 +265,7 @@ def main(unused_argv):
                 #define our log file and pixel segmentation file name
                 if not os.path.exists('results'):
                     os.mkdir('results')
+
                 imgname = os.path.basename(sys.argv[2])
                 modelname = os.path.dirname(sys.argv[3])
                 logname = "results/rawoutput_" + str(os.path.splitext(os.path.basename(sys.argv[2]))[0]) + '_' + modelname + ".txt"
@@ -220,8 +285,8 @@ def main(unused_argv):
                         #once the temporary array is the same size as the batch size, run the testing on the batch
                         if(len(tmp) == constants.BATCH_SIZE or count == ((h - constants.IMG_SIZE) * (w - constants.IMG_SIZE)) - 1):
                             batch = np.array(tmp)
-                            rawpredictions = predictions.eval({x:batch})
-                            mask = rawpredictions.argmax(axis=1)
+                            rawpredictions = output.eval({x1:batch, x2:batch})
+                            mask = np.round(rawpredictions)
 
                             #now we go through the mask and insert the values to the correct position of best_guess which is a copy of
                             #the original image except all the values are -1
@@ -242,7 +307,6 @@ def main(unused_argv):
                             tmp = []
                             count2 += 1
                         count += 1
-
         else:
             print("train ")
             print("trainseg ")

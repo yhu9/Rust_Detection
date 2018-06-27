@@ -1,7 +1,7 @@
 
 
 KEEP_RATE = 0.8                     #Rate of dropping out in the dropout layer
-LOG_DIR = "../ops_logs"             #Directory where the logs would be stored for visualization of the training
+LOG_DIR = "ops_logs"             #Directory where the logs would be stored for visualization of the training
 
 #Neural network constants
 CAT_DIR = "../Corrosion_Dataset/defects/"
