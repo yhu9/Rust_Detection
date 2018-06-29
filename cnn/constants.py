@@ -19,9 +19,9 @@ CLASSES      = 2
 CNN_EPOCHS       = 1000
 CNN_FULL1   = 200                #Number of features output for fully connected layer1
 FULL_IMGSIZE = 500
-IMG_SIZE = 28
-IMG_DEPTH   = 3
-BATCH_SIZE = 1000
+IMG_SIZE = 30
+IMG_DEPTH   = 5
+BATCH_SIZE = 2000
 
 MIN_DENSITY = 10000
 SPATIAL_RADIUS = 5
